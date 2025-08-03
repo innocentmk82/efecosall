@@ -1,8 +1,10 @@
+import { UserType } from '../../shared/config/firebase';
+
 export interface User {
   id: string;
   name: string;
   email: string;
-  type: 'citizen' | 'driver';
+  type: UserType;
   companyId?: string;
   companyName?: string;
   monthlyFuelLimit?: number;

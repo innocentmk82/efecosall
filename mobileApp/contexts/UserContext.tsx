@@ -4,6 +4,7 @@ import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth } from '@/services/firebase';
 import { obdService } from '@/services/obdService';
 import { dataService } from '@/services/dataService';
+import { USER_TYPES } from '../../shared/config/firebase';
 
 /**
  * UserContext provides authentication and user state management
@@ -15,6 +16,7 @@ import { dataService } from '@/services/dataService';
  * - Trip tracking state
  * - Comprehensive logout functionality with cleanup
  * - Real-time data synchronization with web app
+ * - Driver vs Citizen role-based data fetching
  */
 
 interface UserContextType {
@@ -43,6 +45,8 @@ interface UserContextType {
   isInitializing: boolean;
   refreshUserData: () => Promise<void>;
   syncWithWebApp: () => Promise<void>;
+  loadDriverData: () => Promise<void>;
+  assignedBudgets: any[];
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -56,10 +60,35 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [logoutCallbacks, setLogoutCallbacks] = useState<(() => void)[]>([]);
   const [isTrackingTrip, setIsTrackingTrip] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [assignedBudgets, setAssignedBudgets] = useState<any[]>([]);
 
-  const isBusinessUser = user?.type === 'driver';
+  const isBusinessUser = user?.type === USER_TYPES.DRIVER;
   const monthlyLimit = user?.monthlyFuelLimit || 0;
   const personalBudget = user?.personalBudget || 0;
+
+  // Load driver-specific data
+  const loadDriverData = useCallback(async () => {
+    if (!user?.id || user.type !== USER_TYPES.DRIVER) return;
+    
+    try {
+      const driverData = await dataService.getDriverAssignedData(user.id);
+      setVehicles(driverData.vehicles);
+      setAssignedBudgets(driverData.budgets);
+      
+      // Set active vehicle if none is selected
+      const activeVeh = driverData.vehicles.find(v => v.isActive);
+      if (activeVeh && (!activeVehicle || activeVehicle.id !== activeVeh.id)) {
+        setActiveVehicle(activeVeh);
+      } else if (!activeVeh && driverData.vehicles.length > 0) {
+        // If no vehicle is marked as active, set the first one as active
+        const firstVehicle = driverData.vehicles[0];
+        await dataService.setActiveVehicle(user.id, firstVehicle.id);
+        setActiveVehicle(firstVehicle);
+      }
+    } catch (error) {
+      console.error('Error loading driver data:', error);
+    }
+  }, [user?.id, user?.type, activeVehicle]);
 
   // Calculate monthly usage from database
   const calculateMonthlyUsage = useCallback(async () => {
@@ -87,11 +116,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setUser(updatedProfile);
       }
       await calculateMonthlyUsage();
-      await loadVehicles();
+      
+      // Load data based on user type
+      if (updatedProfile?.type === USER_TYPES.DRIVER) {
+        await loadDriverData();
+      } else {
+        await loadVehicles();
+      }
     } catch (error) {
       console.error('Error refreshing user data:', error);
     }
-  }, [user?.id]);
+  }, [user?.id, loadDriverData]);
 
   // Sync with web app
   const syncWithWebApp = useCallback(async () => {
@@ -248,7 +283,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
             const newProfile = await dataService.createUserProfile(firebaseUser.uid, {
               name: firebaseUser.displayName || '',
               email: firebaseUser.email || '',
-              type: 'citizen',
+              type: USER_TYPES.CITIZEN,
               personalBudget: 0,
             });
             setUser(newProfile);
@@ -260,6 +295,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
           setActiveVehicle(null);
           setMonthlyUsage(0);
           setIsTrackingTrip(false);
+          setAssignedBudgets([]);
         }
       } catch (error) {
         console.error('Error in auth state change:', error);
@@ -272,13 +308,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  // Load vehicles when user is authenticated
+  // Load data when user is authenticated based on user type
   useEffect(() => {
     if (user?.id) {
-      loadVehicles();
+      if (user.type === USER_TYPES.DRIVER) {
+        loadDriverData();
+      } else {
+        loadVehicles();
+      }
       calculateMonthlyUsage();
     }
-  }, [user?.id, loadVehicles, calculateMonthlyUsage]);
+  }, [user?.id, user?.type, loadVehicles, loadDriverData, calculateMonthlyUsage]);
 
   const logout = useCallback(async () => {
     setIsLoggingOut(true);
@@ -307,6 +347,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       setMonthlyUsage(0);
       setLogoutCallbacks([]);
       setIsTrackingTrip(false);
+      setAssignedBudgets([]);
       
       console.log('Logout completed successfully');
     } catch (error) {
@@ -319,6 +360,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       setMonthlyUsage(0);
       setLogoutCallbacks([]);
       setIsTrackingTrip(false);
+      setAssignedBudgets([]);
     } finally {
       setIsLoggingOut(false);
     }
@@ -352,6 +394,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         isInitializing,
         refreshUserData,
         syncWithWebApp,
+        loadDriverData,
+        assignedBudgets,
       }}
     >
       {children}

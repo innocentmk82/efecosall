@@ -1,5 +1,7 @@
 import { Trip, FuelLog, FuelStation, DrivingBehavior, Vehicle, User } from '@/types';
 import { db } from '@/services/firebase';
+import { SharedDataService } from '../../shared/services/dataService';
+import { USER_TYPES, UserType } from '../../shared/config/firebase';
 import {
   collection,
   doc,
@@ -17,92 +19,17 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-export class DataService {
+export class DataService extends SharedDataService {
+  constructor() {
+    super(db);
+  }
+
   // --- User Management ---
   async getUserProfile(userId: string): Promise<User | null> {
     try {
-      // First check if user is a business user (driver)
-      const businessUserRef = doc(db, 'businessUsers', userId);
-      const businessUserSnap = await getDoc(businessUserRef);
-      
-      if (businessUserSnap.exists()) {
-        const businessData = businessUserSnap.data();
-        
-        // Get business details
-        let businessName = '';
-        if (businessData.businessId) {
-          const businessRef = doc(db, 'businesses', businessData.businessId);
-          const businessSnap = await getDoc(businessRef);
-          if (businessSnap.exists()) {
-            businessName = businessSnap.data().name || '';
-          }
-        }
-        
-        return {
-          id: userId,
-          name: businessData.email?.split('@')[0] || 'Driver',
-          email: businessData.email || '',
-          type: 'driver',
-          companyId: businessData.businessId,
-          companyName: businessName,
-          monthlyFuelLimit: businessData.monthlyFuelLimit || 0,
-          createdAt: businessData.createdAt?.toDate() || new Date(),
-        };
-      }
-      
-      // Check regular users collection
-      const userRef = doc(db, 'users', userId);
-      const userSnap = await getDoc(userRef);
-      
-      if (userSnap.exists()) {
-        const userData = userSnap.data();
-        
-        // Check the type field in the user document
-        const userType = userData.type || 'citizen';
-        
-        console.log('Found user in users collection:', {
-          userId,
-          userData,
-          detectedType: userType
-        });
-        
-        return {
-          id: userId,
-          name: userData.name || userData.email?.split('@')[0] || 'User',
-          email: userData.email || '',
-          type: userType,
-          personalBudget: userData.personalBudget || 0,
-          createdAt: userData.createdAt?.toDate() || new Date(),
-        };
-      }
-      
-      return null;
+      return await super.getUserProfile(userId);
     } catch (error) {
       console.error('Error getting user profile:', error);
-      throw error;
-    }
-  }
-
-  async createUserProfile(userId: string, userData: Partial<User>): Promise<User> {
-    try {
-      const userProfile: User = {
-        id: userId,
-        name: userData.name || '',
-        email: userData.email || '',
-        type: userData.type || 'citizen',
-        personalBudget: userData.personalBudget || 0,
-        createdAt: new Date(),
-      };
-
-      const userRef = doc(db, 'users', userId);
-      await setDoc(userRef, {
-        ...userProfile,
-        createdAt: Timestamp.fromDate(userProfile.createdAt),
-      });
-
-      return userProfile;
-    } catch (error) {
-      console.error('Error creating user profile:', error);
       throw error;
     }
   }
@@ -115,75 +42,14 @@ export class DataService {
     }
     
     try {
-      const vehiclesRef = collection(db, 'vehicles');
-      const q = query(vehiclesRef, where('userId', '==', userId));
-      const snapshot = await getDocs(q);
+      // Get user profile to determine user type
+      const userProfile = await this.getUserProfile(userId);
+      const userType = userProfile?.type || USER_TYPES.CITIZEN;
       
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          ...data,
-          id: doc.id,
-        } as Vehicle;
-      });
+      return await super.getVehicles(userId, userType as UserType);
     } catch (error) {
       console.error('Error loading vehicles:', error);
       return [];
-    }
-  }
-
-  async addVehicle(vehicle: Omit<Vehicle, 'id'>): Promise<Vehicle> {
-    try {
-      const vehiclesRef = collection(db, 'vehicles');
-      const docRef = await addDoc(vehiclesRef, vehicle);
-      return { ...vehicle, id: docRef.id } as Vehicle;
-    } catch (error) {
-      console.error('Error adding vehicle:', error);
-      throw error;
-    }
-  }
-
-  async updateVehicle(vehicleId: string, updates: Partial<Vehicle>): Promise<void> {
-    try {
-      const vehicleRef = doc(db, 'vehicles', vehicleId);
-      await updateDoc(vehicleRef, updates);
-    } catch (error) {
-      console.error('Error updating vehicle:', error);
-      throw error;
-    }
-  }
-
-  async deleteVehicle(vehicleId: string): Promise<void> {
-    try {
-      const vehicleRef = doc(db, 'vehicles', vehicleId);
-      await deleteDoc(vehicleRef);
-    } catch (error) {
-      console.error('Error deleting vehicle:', error);
-      throw error;
-    }
-  }
-
-  async setActiveVehicle(userId: string, vehicleId: string): Promise<void> {
-    try {
-      const batch = writeBatch(db);
-      
-      // First, deactivate all vehicles for this user
-      const vehiclesRef = collection(db, 'vehicles');
-      const q = query(vehiclesRef, where('userId', '==', userId));
-      const snapshot = await getDocs(q);
-      
-      snapshot.docs.forEach(doc => {
-        batch.update(doc.ref, { isActive: false });
-      });
-      
-      // Then activate the selected vehicle
-      const vehicleRef = doc(db, 'vehicles', vehicleId);
-      batch.update(vehicleRef, { isActive: true });
-      
-      await batch.commit();
-    } catch (error) {
-      console.error('Error setting active vehicle:', error);
-      throw error;
     }
   }
 
@@ -195,43 +61,14 @@ export class DataService {
     }
     
     try {
-      const tripsRef = collection(db, 'trips');
-      const q = query(
-        tripsRef, 
-        where('userId', '==', userId),
-        orderBy('startTime', 'desc'),
-        limit(50)
-      );
-      const snapshot = await getDocs(q);
+      // Get user profile to determine user type
+      const userProfile = await this.getUserProfile(userId);
+      const userType = userProfile?.type || USER_TYPES.CITIZEN;
       
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          ...data,
-          id: doc.id,
-          startTime: data.startTime?.toDate() || new Date(data.startTime),
-          endTime: data.endTime?.toDate() || (data.endTime ? new Date(data.endTime) : undefined),
-        } as Trip;
-      });
+      return await super.getTrips(userId, userType as UserType);
     } catch (error) {
       console.error('Error loading trips:', error);
       return [];
-    }
-  }
-
-  async addTrip(trip: Omit<Trip, 'id'>): Promise<Trip> {
-    try {
-      const tripsRef = collection(db, 'trips');
-      const tripToSave = {
-        ...trip,
-        startTime: Timestamp.fromDate(trip.startTime),
-        endTime: trip.endTime ? Timestamp.fromDate(trip.endTime) : null,
-      };
-      const docRef = await addDoc(tripsRef, tripToSave);
-      return { ...trip, id: docRef.id } as Trip;
-    } catch (error) {
-      console.error('Error adding trip:', error);
-      throw error;
     }
   }
 
@@ -243,48 +80,26 @@ export class DataService {
     }
     
     try {
-      const logsRef = collection(db, 'fuelLogs');
-      const q = query(
-        logsRef, 
-        where('userId', '==', userId),
-        orderBy('date', 'desc'),
-        limit(50)
-      );
-      const snapshot = await getDocs(q);
+      // Get user profile to determine user type
+      const userProfile = await this.getUserProfile(userId);
+      const userType = userProfile?.type || USER_TYPES.CITIZEN;
       
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          ...data,
-          id: doc.id,
-          date: data.date?.toDate() || new Date(data.date),
-        } as FuelLog;
-      });
+      return await super.getFuelLogs(userId, userType as UserType);
     } catch (error) {
       console.error('Error loading fuel logs:', error);
       return [];
     }
   }
 
-  async addFuelLog(log: Omit<FuelLog, 'id'>): Promise<FuelLog> {
-    try {
-      const logsRef = collection(db, 'fuelLogs');
-      const logToSave = {
-        ...log,
-        date: Timestamp.fromDate(log.date),
-      };
-      const docRef = await addDoc(logsRef, logToSave);
-      return { ...log, id: docRef.id } as FuelLog;
-    } catch (error) {
-      console.error('Error adding fuel log:', error);
-      throw error;
-    }
+  // --- Driver-specific methods ---
+  async getDriverAssignedData(userId: string) {
+    return await super.getDriverAssignedData(userId);
   }
 
   // --- Fuel Stations ---
   async getFuelStations(): Promise<FuelStation[]> {
     try {
-      const stationsRef = collection(db, 'fuelStations');
+      const stationsRef = collection(this.db, 'fuelStations');
       const q = query(stationsRef, orderBy('name'));
       const snapshot = await getDocs(q);
       
@@ -342,32 +157,11 @@ export class DataService {
     }
 
     try {
-      const currentDate = new Date();
-      const targetMonth = month ?? currentDate.getMonth();
-      const targetYear = year ?? currentDate.getFullYear();
-
-      // Get start and end of month
-      const startOfMonth = new Date(targetYear, targetMonth, 1);
-      const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
-
-      // Query trips for the month
-      const tripsRef = collection(db, 'trips');
-      const q = query(
-        tripsRef,
-        where('userId', '==', userId),
-        where('startTime', '>=', Timestamp.fromDate(startOfMonth)),
-        where('startTime', '<=', Timestamp.fromDate(endOfMonth))
-      );
+      // Get user profile to determine user type
+      const userProfile = await this.getUserProfile(userId);
+      const userType = userProfile?.type || USER_TYPES.CITIZEN;
       
-      const snapshot = await getDocs(q);
-      
-      // Calculate total cost from trips
-      const totalCost = snapshot.docs.reduce((sum, doc) => {
-        const trip = doc.data();
-        return sum + (trip.cost || 0);
-      }, 0);
-      
-      return totalCost;
+      return await super.calculateMonthlyUsage(userId, userType as UserType, month, year);
     } catch (error) {
       console.error('Error calculating monthly usage:', error);
       return 0;
@@ -395,27 +189,7 @@ export class DataService {
         throw new Error('User profile not found');
       }
 
-      const isBusinessUser = userProfile.type === 'driver';
-      const monthlyLimit = userProfile.monthlyFuelLimit || 0;
-      const personalBudget = userProfile.personalBudget || 0;
-      
-      // Calculate current month's usage
-      const monthlyUsage = await this.calculateMonthlyUsage(userId);
-      
-      const budgetLimit = isBusinessUser ? monthlyLimit : personalBudget;
-      const usagePercentage = budgetLimit > 0 ? (monthlyUsage / budgetLimit) * 100 : 0;
-      const remainingBudget = budgetLimit - monthlyUsage;
-      const isOverBudget = monthlyUsage > budgetLimit;
-
-      return {
-        monthlyUsage,
-        monthlyLimit,
-        personalBudget,
-        isBusinessUser,
-        usagePercentage,
-        remainingBudget,
-        isOverBudget,
-      };
+      return await super.getMonthlyBudgetStatus(userId, userProfile.type as UserType);
     } catch (error) {
       console.error('Error getting monthly budget status:', error);
       throw error;
@@ -425,92 +199,20 @@ export class DataService {
   // --- Budget Alerts ---
   async getBudgetAlerts(userId: string): Promise<string[]> {
     try {
-      const budgetStatus = await this.getMonthlyBudgetStatus(userId);
-      const alerts: string[] = [];
-
-      if (budgetStatus.isOverBudget) {
-        alerts.push(`Budget exceeded by E${Math.abs(budgetStatus.remainingBudget).toFixed(2)}`);
-      } else if (budgetStatus.usagePercentage >= 90) {
-        alerts.push(`Budget at ${budgetStatus.usagePercentage.toFixed(0)}% - nearly exceeded`);
-      } else if (budgetStatus.usagePercentage >= 75) {
-        alerts.push(`Budget at ${budgetStatus.usagePercentage.toFixed(0)}% - monitor spending`);
-      }
-
-      return alerts;
+      // Get user profile to determine user type
+      const userProfile = await this.getUserProfile(userId);
+      const userType = userProfile?.type || USER_TYPES.CITIZEN;
+      
+      return await super.getBudgetAlerts(userId, userType as UserType);
     } catch (error) {
       console.error('Error getting budget alerts:', error);
       return [];
     }
   }
 
-  // --- User Profile & Budget Updates ---
-  async updateUserBudget(userId: string, budget: number): Promise<void> {
-    if (!userId) {
-      throw new Error('updateUserBudget called with undefined userId');
-    }
-    
-    try {
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, { personalBudget: budget });
-    } catch (error) {
-      console.error('Error updating user budget:', error);
-      throw error;
-    }
-  }
-
-  async updateUserMonthlyLimit(userId: string, limit: number): Promise<void> {
-    if (!userId) {
-      throw new Error('updateUserMonthlyLimit called with undefined userId');
-    }
-    
-    try {
-      const businessUserRef = doc(db, 'businessUsers', userId);
-      await updateDoc(businessUserRef, { monthlyFuelLimit: limit });
-    } catch (error) {
-      console.error('Error updating monthly limit:', error);
-      throw error;
-    }
-  }
-
-  // --- Driving Behavior ---
-  async getDrivingBehavior(userId: string): Promise<DrivingBehavior | null> {
-    if (!userId) {
-      console.warn('getDrivingBehavior called with undefined userId');
-      return null;
-    }
-    
-    try {
-      const behaviorRef = doc(db, 'drivingBehavior', userId);
-      const snap = await getDoc(behaviorRef);
-      
-      if (snap.exists()) {
-        const data = snap.data();
-        return {
-          ...data,
-          date: data.date?.toDate() || new Date(),
-        } as DrivingBehavior;
-      }
-      
-      // Return default behavior if none exists
-      return {
-        userId,
-        date: new Date(),
-        aggressiveAcceleration: 0,
-        hardBraking: 0,
-        excessiveIdling: 0,
-        speedingEvents: 0,
-        fuelEfficiencyScore: 100,
-        overallScore: 100,
-      };
-    } catch (error) {
-      console.error('Error loading driving behavior:', error);
-      return null;
-    }
-  }
-
   async updateDrivingBehavior(behavior: DrivingBehavior): Promise<void> {
     try {
-      const behaviorRef = doc(db, 'drivingBehavior', behavior.userId);
+      const behaviorRef = doc(this.db, 'drivingBehavior', behavior.userId);
       await setDoc(behaviorRef, {
         ...behavior,
         date: Timestamp.fromDate(behavior.date),
@@ -524,7 +226,7 @@ export class DataService {
   // --- Business Users (Drivers) ---
   async getBusinessUserDetails(userId: string): Promise<any> {
     try {
-      const businessUserRef = doc(db, 'businessUsers', userId);
+      const businessUserRef = doc(this.db, 'businessUsers', userId);
       const businessUserSnap = await getDoc(businessUserRef);
       
       if (!businessUserSnap.exists()) {
@@ -536,7 +238,7 @@ export class DataService {
       // Get business details if businessId exists
       let businessDetails = null;
       if (businessData.businessId) {
-        const businessRef = doc(db, 'businesses', businessData.businessId);
+        const businessRef = doc(this.db, 'businesses', businessData.businessId);
         const businessSnap = await getDoc(businessRef);
         if (businessSnap.exists()) {
           businessDetails = businessSnap.data();
@@ -556,7 +258,7 @@ export class DataService {
   // --- Drivers Collection ---
   async getDriverDetails(userId: string): Promise<any> {
     try {
-      const driverRef = doc(db, 'drivers', userId);
+      const driverRef = doc(this.db, 'drivers', userId);
       const driverSnap = await getDoc(driverRef);
       
       if (driverSnap.exists()) {
@@ -577,7 +279,7 @@ export class DataService {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      const tripsRef = collection(db, 'trips');
+      const tripsRef = collection(this.db, 'trips');
       const q = query(
         tripsRef,
         where('userId', '==', userId),
@@ -604,16 +306,24 @@ export class DataService {
     }
   }
 
-  // --- Sync with Web App ---
-  async syncUserData(userId: string): Promise<void> {
-    try {
-      // This method ensures data consistency between web and mobile
-      // Force refresh of user profile and related data
-      await this.getUserProfile(userId);
-    } catch (error) {
-      console.error('Error syncing user data:', error);
-      throw error;
-    }
+  // Create user profile method for mobile app
+  async createUserProfile(userId: string, userData: Partial<User>): Promise<User> {
+    const userProfile: User = {
+      id: userId,
+      name: userData.name || '',
+      email: userData.email || '',
+      type: userData.type || USER_TYPES.CITIZEN,
+      personalBudget: userData.personalBudget || 0,
+      createdAt: new Date(),
+    };
+
+    const userRef = doc(this.db, 'users', userId);
+    await setDoc(userRef, {
+      ...userProfile,
+      createdAt: Timestamp.fromDate(userProfile.createdAt),
+    });
+
+    return userProfile;
   }
 }
 
