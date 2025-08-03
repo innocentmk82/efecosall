@@ -1,7 +1,7 @@
-import { Trip, FuelLog, FuelStation, DrivingBehavior, Vehicle, User } from '@/types';
-import { db } from '@/services/firebase';
-import { SharedDataService } from '../../shared/services/dataService';
-import { USER_TYPES, UserType } from '../../shared/config/firebase';
+import { db } from './firebase';
+import { SharedDataService } from '../shared/services/dataService';
+import { USER_TYPES, UserType } from '../shared/config/firebase';
+import { User, Vehicle, Trip, FuelLog, FuelStation, DrivingBehavior } from '../shared/types';
 import {
   collection,
   doc,
@@ -17,9 +17,10 @@ import {
   limit,
   Timestamp,
   writeBatch,
+  serverTimestamp,
 } from 'firebase/firestore';
 
-export class DataService extends SharedDataService {
+export class MobileDataService extends SharedDataService {
   constructor() {
     super(db);
   }
@@ -313,9 +314,30 @@ export class DataService extends SharedDataService {
       name: userData.name || '',
       email: userData.email || '',
       type: userData.type || USER_TYPES.CITIZEN,
-      personalBudget: userData.personalBudget || 0,
       createdAt: new Date(),
-    };
+      ...(userData.type === USER_TYPES.CITIZEN 
+        ? { 
+            personalBudget: userData.personalBudget || 0,
+            preferences: {
+              currency: 'E',
+              notifications: true,
+              theme: 'light'
+            }
+          } 
+        : {
+            companyId: userData.companyId || '',
+            companyName: userData.companyName || '',
+            monthlyFuelLimit: userData.monthlyFuelLimit || 0,
+            licenseNumber: userData.licenseNumber || '',
+            department: userData.department || '',
+            assignedVehicles: userData.assignedVehicles || [],
+            businessId: userData.businessId || '',
+            permissions: userData.permissions || [],
+            role: userData.role || 'driver',
+            isActive: userData.isActive !== false,
+          }
+      )
+    } as User;
 
     const userRef = doc(this.db, 'users', userId);
     await setDoc(userRef, {
@@ -327,4 +349,4 @@ export class DataService extends SharedDataService {
   }
 }
 
-export const dataService = new DataService();
+export const dataService = new MobileDataService();

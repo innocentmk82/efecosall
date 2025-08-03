@@ -21,28 +21,7 @@ import {
   serverTimestamp 
 } from 'firebase/firestore';
 import { USER_TYPES, COLLECTIONS, UserType } from '../config/firebase';
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  type: UserType;
-  companyId?: string;
-  companyName?: string;
-  monthlyFuelLimit?: number;
-  personalBudget?: number;
-  businessId?: string;
-  permissions?: string[];
-  role?: string;
-  isActive?: boolean;
-  createdAt: Date;
-}
-
-export interface AuthResult {
-  success: boolean;
-  user?: User;
-  error?: string;
-}
+import { User, AuthResult, LoginCredentials, SignUpData } from '../types';
 
 export class SharedAuthService {
   private auth: Auth;
@@ -54,9 +33,13 @@ export class SharedAuthService {
   }
 
   // Sign in with email and password
-  async signIn(email: string, password: string): Promise<AuthResult> {
+  async signIn(credentials: LoginCredentials): Promise<AuthResult> {
     try {
-      const userCredential = await signInWithEmailAndPassword(this.auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(
+        this.auth, 
+        credentials.email, 
+        credentials.password
+      );
       const firebaseUser = userCredential.user;
       
       // Get user profile from database
@@ -73,21 +56,25 @@ export class SharedAuthService {
     }
   }
 
-  // Create new account (citizens only for mobile, business users for web)
-  async signUp(name: string, email: string, password: string, userType: UserType = USER_TYPES.CITIZEN): Promise<AuthResult> {
+  // Create new account
+  async signUp(signUpData: SignUpData): Promise<AuthResult> {
     try {
-      const userCredential = await createUserWithEmailAndPassword(this.auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(
+        this.auth, 
+        signUpData.email, 
+        signUpData.password
+      );
       const firebaseUser = userCredential.user;
       
       // Update Firebase profile
-      await updateProfile(firebaseUser, { displayName: name });
+      await updateProfile(firebaseUser, { displayName: signUpData.name });
       
       // Create user profile in database
       const userProfile = await this.createUserProfile(firebaseUser.uid, {
-        name,
-        email,
-        type: userType,
-        personalBudget: userType === USER_TYPES.CITIZEN ? 0 : undefined,
+        name: signUpData.name,
+        email: signUpData.email,
+        type: signUpData.userType || USER_TYPES.CITIZEN,
+        personalBudget: signUpData.userType === USER_TYPES.CITIZEN ? 0 : undefined,
       });
       
       return { success: true, user: userProfile };
@@ -130,7 +117,10 @@ export class SharedAuthService {
           role: businessData.role || 'driver',
           isActive: businessData.isActive !== false,
           createdAt: businessData.createdAt?.toDate() || new Date(),
-        };
+          licenseNumber: '',
+          department: '',
+          assignedVehicles: [],
+        } as User;
       }
       
       // Check drivers collection for temporal password users
@@ -160,8 +150,14 @@ export class SharedAuthService {
           companyName: businessName,
           monthlyFuelLimit: driverData.monthlyFuelLimit || 0,
           businessId: driverData.businessId,
+          licenseNumber: driverData.licenseNumber || '',
+          department: driverData.department || '',
+          assignedVehicles: driverData.assignedVehicles || [],
+          permissions: [],
+          role: 'driver',
+          isActive: true,
           createdAt: driverData.createdAt?.toDate() || new Date(),
-        };
+        } as User;
       }
       
       // Check regular users collection
@@ -177,8 +173,13 @@ export class SharedAuthService {
           email: userData.email || '',
           type: userData.type || USER_TYPES.CITIZEN,
           personalBudget: userData.personalBudget || 0,
+          preferences: userData.preferences || {
+            currency: 'E',
+            notifications: true,
+            theme: 'light'
+          },
           createdAt: userData.createdAt?.toDate() || new Date(),
-        };
+        } as User;
       }
       
       return null;
@@ -196,15 +197,36 @@ export class SharedAuthService {
         name: userData.name || '',
         email: userData.email || '',
         type: userData.type || USER_TYPES.CITIZEN,
-        personalBudget: userData.personalBudget || 0,
         createdAt: new Date(),
-        ...userData
-      };
+        ...(userData.type === USER_TYPES.CITIZEN 
+          ? { 
+              personalBudget: userData.personalBudget || 0,
+              preferences: {
+                currency: 'E',
+                notifications: true,
+                theme: 'light'
+              }
+            } 
+          : {
+              companyId: userData.companyId || '',
+              companyName: userData.companyName || '',
+              monthlyFuelLimit: userData.monthlyFuelLimit || 0,
+              licenseNumber: userData.licenseNumber || '',
+              department: userData.department || '',
+              assignedVehicles: userData.assignedVehicles || [],
+              businessId: userData.businessId || '',
+              permissions: userData.permissions || [],
+              role: userData.role || 'driver',
+              isActive: userData.isActive !== false,
+            }
+        )
+      } as User;
 
       const userRef = doc(this.db, COLLECTIONS.USERS, userId);
       await setDoc(userRef, {
         ...userProfile,
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
       return userProfile;

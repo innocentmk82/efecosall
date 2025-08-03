@@ -2,7 +2,8 @@ import React, { createContext, useContext, useEffect, useState, ReactNode, useCa
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { BusinessAuthService } from '../services/businessAuthService';
-import { Business, BusinessUser } from '../types';
+import { Business, BusinessUser } from '../shared/types';
+import { SharedAuthService } from '../shared/services/authService';
 
 interface AuthContextType {
   user: User | null;

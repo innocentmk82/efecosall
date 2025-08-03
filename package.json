@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "push-data": "node scripts/pushToFirebase.js",
-    "test-db": "node scripts/testFirebase.js"
+    "test-db": "node scripts/testFirebase.js",
+    "setup-demo": "node scripts/setupDemoData.js"
   },
   "dependencies": {
     "@types/react-router-dom": "^5.3.3",

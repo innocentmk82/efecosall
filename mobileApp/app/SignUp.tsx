@@ -12,11 +12,9 @@ import {
   Platform,
   ScrollView
 } from 'react-native';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { auth } from '@/services/firebase';
 import { useUser } from '@/contexts/UserContext';
-import { dataService } from '@/services/dataService';
-import { User, Mail, Lock, Eye, EyeOff, CircleAlert as AlertCircle, CircleCheck as CheckCircle } from 'lucide-react-native';
+import { authService } from '@/services/authService';
+import { User, Mail, Lock, Eye, EyeOff, CircleAlert as AlertCircle } from 'lucide-react-native';
 
 export default function SignUpScreen({ onSignIn }: { onSignIn?: () => void }) {
   const { setUser } = useUser();
@@ -75,27 +73,13 @@ export default function SignUpScreen({ onSignIn }: { onSignIn?: () => void }) {
     try {
       console.log('Creating account for:', formData.email);
       
-      // Create Firebase user
-      const userCredential = await createUserWithEmailAndPassword(
-        auth, 
-        formData.email.trim(), 
-        formData.password
-      );
-      const firebaseUser = userCredential.user;
-      
-      // Update Firebase profile
-      await updateProfile(firebaseUser, { 
-        displayName: formData.name.trim() 
-      });
-      
-      console.log('Firebase user created, creating profile...');
-      
-      // Create user profile in database
-      const userProfile = await dataService.createUserProfile(firebaseUser.uid, {
+      // Create user account using shared auth service
+      const userProfile = await authService.signUp({
         name: formData.name.trim(),
         email: formData.email.trim(),
-        type: 'citizen', // Only citizens can sign up via mobile
-        personalBudget: 0,
+        password: formData.password,
+        confirmPassword: formData.confirmPassword,
+        userType: 'citizen', // Only citizens can sign up via mobile
       });
       
       console.log('User profile created successfully');
@@ -113,24 +97,28 @@ export default function SignUpScreen({ onSignIn }: { onSignIn?: () => void }) {
       // Handle specific Firebase auth errors
       let errorMessage = 'Failed to create account. Please try again.';
       
-      switch (err.code) {
-        case 'auth/email-already-in-use':
-          errorMessage = 'An account with this email already exists.';
-          break;
-        case 'auth/invalid-email':
-          errorMessage = 'Please enter a valid email address.';
-          break;
-        case 'auth/operation-not-allowed':
-          errorMessage = 'Email/password accounts are not enabled. Please contact support.';
-          break;
-        case 'auth/weak-password':
-          errorMessage = 'Password is too weak. Please choose a stronger password.';
-          break;
-        case 'auth/network-request-failed':
-          errorMessage = 'Network error. Please check your connection and try again.';
-          break;
-        default:
-          errorMessage = err.message || 'Failed to create account. Please try again.';
+      if (err.message) {
+        errorMessage = err.message;
+      } else {
+        switch (err.code) {
+          case 'auth/email-already-in-use':
+            errorMessage = 'An account with this email already exists.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Please enter a valid email address.';
+            break;
+          case 'auth/operation-not-allowed':
+            errorMessage = 'Email/password accounts are not enabled. Please contact support.';
+            break;
+          case 'auth/weak-password':
+            errorMessage = 'Password is too weak. Please choose a stronger password.';
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your connection and try again.';
+            break;
+          default:
+            errorMessage = err.message || 'Failed to create account. Please try again.';
+        }
       }
       
       setErrors({ general: errorMessage });

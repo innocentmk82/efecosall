@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isBusinessMember(businessId) {
+      return exists(/databases/$(database)/documents/businessUsers/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/businessUsers/$(request.auth.uid)).data.businessId == businessId;
+    }
+    
+    function isDriverOfBusiness(businessId) {
+      return exists(/databases/$(database)/documents/drivers/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.businessId == businessId;
+    }
+
+    // Users collection - personal user profiles
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Business Users collection - business account users
+    match /businessUsers/{userId} {
+      allow read, write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Businesses collection - business profiles
+    match /businesses/{businessId} {
+      allow read, write: if isAuthenticated() && isBusinessMember(businessId);
+    }
+
+    // Drivers collection - driver profiles
+    match /drivers/{driverId} {
+      allow read: if isAuthenticated() && (
+        isOwner(driverId) || 
+        isBusinessMember(resource.data.businessId) ||
+        isDriverOfBusiness(resource.data.businessId)
+      );
+      allow write: if isAuthenticated() && isBusinessMember(resource.data.businessId);
+    }
+
+    // Vehicles collection
+    match /vehicles/{vehicleId} {
+      allow read, write: if isAuthenticated() && (
+        // Personal vehicles
+        (resource.data.userId != null && isOwner(resource.data.userId)) ||
+        // Business vehicles
+        (resource.data.businessId != null && isBusinessMember(resource.data.businessId)) ||
+        // Driver assigned vehicles
+        (resource.data.assignedDriverId != null && isOwner(resource.data.assignedDriverId))
+      );
+    }
+
+    // Trips collection
+    match /trips/{tripId} {
+      allow read, write: if isAuthenticated() && (
+        // Personal trips
+        (resource.data.userId != null && isOwner(resource.data.userId)) ||
+        // Business trips
+        (resource.data.businessId != null && isBusinessMember(resource.data.businessId)) ||
+        // Driver trips
+        (resource.data.driverId != null && isOwner(resource.data.driverId))
+      );
+    }
+
+    // Fuel Logs collection
+    match /fuelLogs/{logId} {
+      allow read, write: if isAuthenticated() && (
+        // Personal fuel logs
+        (resource.data.userId != null && isOwner(resource.data.userId)) ||
+        // Business fuel logs
+        (resource.data.businessId != null && isBusinessMember(resource.data.businessId)) ||
+        // Driver fuel logs
+        (resource.data.driverId != null && isOwner(resource.data.driverId))
+      );
+    }
+
+    // Budgets collection
+    match /budgets/{budgetId} {
+      allow read, write: if isAuthenticated() && isBusinessMember(resource.data.businessId);
+    }
+
+    // OBD Devices collection
+    match /obdDevices/{deviceId} {
+      allow read, write: if isAuthenticated() && (
+        isBusinessMember(resource.data.businessId) ||
+        isDriverOfBusiness(resource.data.businessId)
+      );
+    }
+
+    // OBD Alerts collection
+    match /obdAlerts/{alertId} {
+      allow read, write: if isAuthenticated() && (
+        isBusinessMember(resource.data.businessId) ||
+        isDriverOfBusiness(resource.data.businessId)
+      );
+    }
+
+    // Driving Behavior collection
+    match /drivingBehavior/{userId} {
+      allow read, write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Fuel Stations collection (public read)
+    match /fuelStations/{stationId} {
+      allow read: if true;
+      allow write: if false; // Only admins can write (handled server-side)
+    }
+  }
+}

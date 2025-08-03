@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { firebaseService } from '../services/firebaseService';
-import { Vehicle, Driver, FuelLog, Trip, Budget, OBDAlert, OBDDevice, DashboardKPIs } from '../types';
+import { Vehicle, Driver, FuelLog, Trip, Budget, OBDAlert, OBDDevice, DashboardKPIs } from '../shared/types';
 import { useToast } from '../components/common/ToastContainer';
 import ErrorMessage from '../components/common/ErrorMessage';
 

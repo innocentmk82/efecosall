@@ -16,6 +16,7 @@ import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/aut
 import { auth } from '@/services/firebase';
 import { useUser } from '@/contexts/UserContext';
 import { dataService } from '@/services/dataService';
+import { authService } from '@/services/authService';
 import { Eye, EyeOff, Mail, Lock, CircleAlert as AlertCircle } from 'lucide-react-native';
 
 export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
@@ -26,6 +27,7 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [loginMode, setLoginMode] = useState<'regular' | 'driver'>('regular');
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -50,41 +52,29 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
         return;
       }
 
-      console.log('Attempting login for:', email);
+      console.log('Attempting login for:', email, 'Mode:', loginMode);
       
-      // Sign in with Firebase
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const firebaseUser = userCredential.user;
+      let userProfile;
       
-      console.log('Firebase login successful, loading profile...');
-      
-      // Get user profile from database
-      const userProfile = await dataService.getUserProfile(firebaseUser.uid);
-      
-      if (userProfile) {
-        console.log('User profile loaded:', userProfile.type);
-        console.log('User details:', {
-          id: userProfile.id,
-          name: userProfile.name,
-          email: userProfile.email,
-          type: userProfile.type,
-          isBusinessUser: userProfile.type === 'driver'
-        });
-        setUser(userProfile);
-        
-        // Sync data with web app
-        await dataService.syncUserData(firebaseUser.uid);
+      if (loginMode === 'driver') {
+        // Try driver login with temporal password
+        try {
+          userProfile = await authService.signInDriver(email.trim(), password);
+        } catch (driverError: any) {
+          console.log('Driver login failed, trying regular login:', driverError.message);
+          // Fall back to regular login
+          userProfile = await authService.signIn({ email: email.trim(), password });
+        }
       } else {
-        console.log('No profile found, creating new citizen profile');
-        // Create new citizen profile if none exists
-        const newProfile = await dataService.createUserProfile(firebaseUser.uid, {
-          name: firebaseUser.displayName || email.split('@')[0],
-          email: firebaseUser.email || email,
-          type: 'citizen',
-          personalBudget: 0,
-        });
-        setUser(newProfile);
+        // Regular Firebase authentication
+        userProfile = await authService.signIn({ email: email.trim(), password });
       }
+      
+      console.log('Login successful, user type:', userProfile.type);
+      setUser(userProfile);
+      
+      // Sync data with web app
+      await dataService.syncUserData(userProfile.id);
       
     } catch (err: any) {
       console.error('Login error:', err);
@@ -92,27 +82,31 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
       // Handle specific Firebase auth errors
       let errorMessage = 'Login failed. Please try again.';
       
-      switch (err.code) {
-        case 'auth/user-not-found':
-          errorMessage = 'No account found with this email address.';
-          break;
-        case 'auth/wrong-password':
-          errorMessage = 'Incorrect password. Please try again.';
-          break;
-        case 'auth/invalid-email':
-          errorMessage = 'Please enter a valid email address.';
-          break;
-        case 'auth/user-disabled':
-          errorMessage = 'This account has been disabled. Please contact support.';
-          break;
-        case 'auth/too-many-requests':
-          errorMessage = 'Too many failed attempts. Please try again later.';
-          break;
-        case 'auth/network-request-failed':
-          errorMessage = 'Network error. Please check your connection and try again.';
-          break;
-        default:
-          errorMessage = err.message || 'Login failed. Please try again.';
+      if (err.message) {
+        errorMessage = err.message;
+      } else {
+        switch (err.code) {
+          case 'auth/user-not-found':
+            errorMessage = 'No account found with this email address.';
+            break;
+          case 'auth/wrong-password':
+            errorMessage = 'Incorrect password. Please try again.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Please enter a valid email address.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'This account has been disabled. Please contact support.';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = 'Too many failed attempts. Please try again later.';
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your connection and try again.';
+            break;
+          default:
+            errorMessage = err.message || 'Login failed. Please try again.';
+        }
       }
       
       setError(errorMessage);
@@ -173,6 +167,26 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
           <Text style={styles.title}>Welcome Back</Text>
           <Text style={styles.subtitle}>Sign in to continue tracking your fuel usage</Text>
           
+          {/* Login Mode Toggle */}
+          <View style={styles.modeToggle}>
+            <TouchableOpacity
+              style={[styles.modeButton, loginMode === 'regular' && styles.modeButtonActive]}
+              onPress={() => setLoginMode('regular')}
+            >
+              <Text style={[styles.modeButtonText, loginMode === 'regular' && styles.modeButtonTextActive]}>
+                Regular Login
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeButton, loginMode === 'driver' && styles.modeButtonActive]}
+              onPress={() => setLoginMode('driver')}
+            >
+              <Text style={[styles.modeButtonText, loginMode === 'driver' && styles.modeButtonTextActive]}>
+                Driver Login
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
           {/* Email Input */}
           <View style={styles.inputContainer}>
             <View style={styles.inputWrapper}>
@@ -201,7 +215,7 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
               <Lock size={20} color="#6B7280" />
               <TextInput
                 style={styles.input}
-                placeholder="Password"
+                placeholder={loginMode === 'driver' ? 'Temporal Password' : 'Password'}
                 value={password}
                 onChangeText={(text) => {
                   setPassword(text);
@@ -224,6 +238,15 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Login Mode Info */}
+          {loginMode === 'driver' && (
+            <View style={styles.driverInfo}>
+              <Text style={styles.driverInfoText}>
+                Use the temporal password provided by your company administrator
+              </Text>
+            </View>
+          )}
 
           {/* Error Message */}
           {error ? (
@@ -254,13 +277,15 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
           </TouchableOpacity>
 
           {/* Forgot Password */}
-          <TouchableOpacity 
-            style={styles.forgotPasswordButton} 
-            onPress={handleForgotPassword}
-            disabled={loading}
-          >
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
+          {loginMode === 'regular' && (
+            <TouchableOpacity 
+              style={styles.forgotPasswordButton} 
+              onPress={handleForgotPassword}
+              disabled={loading}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          )}
 
           {/* Sign Up Link */}
           <TouchableOpacity 
@@ -281,6 +306,7 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
               onPress={() => {
                 setEmail('citizen@demo.com');
                 setPassword('demo123');
+                setLoginMode('regular');
               }}
               disabled={loading}
             >
@@ -290,7 +316,8 @@ export default function LoginScreen({ onSignUp }: { onSignUp?: () => void }) {
               style={styles.demoButton}
               onPress={() => {
                 setEmail('driver@demo.com');
-                setPassword('demo123');
+                setPassword('TEMP1234');
+                setLoginMode('driver');
               }}
               disabled={loading}
             >
@@ -347,6 +374,38 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 24,
+    width: '100%',
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  modeButtonActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  modeButtonText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  modeButtonTextActive: {
+    color: '#2563EB',
+    fontWeight: '600',
+  },
   inputContainer: {
     width: '100%',
     marginBottom: 16,
@@ -369,6 +428,18 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     padding: 4,
+  },
+  driverInfo: {
+    backgroundColor: '#EBF8FF',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    width: '100%',
+  },
+  driverInfoText: {
+    color: '#1E40AF',
+    fontSize: 12,
+    textAlign: 'center',
   },
   errorContainer: {
     flexDirection: 'row',

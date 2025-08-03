@@ -41,3 +41,17 @@ export const COLLECTIONS = {
   OBD_DEVICES: 'obdDevices',
   OBD_ALERTS: 'obdAlerts'
 } as const;
+
+// Shared validation rules
+export const VALIDATION_RULES = {
+  EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  PASSWORD_MIN_LENGTH: 6,
+  NAME_MIN_LENGTH: 2,
+  PHONE_MIN_LENGTH: 10
+};
+
+// Shared constants
+export const FUEL_TYPES = ['gasoline', 'diesel', 'hybrid', 'electric'] as const;
+export const VEHICLE_STATUSES = ['active', 'maintenance', 'inactive'] as const;
+export const TRIP_STATUSES = ['Completed', 'In Progress', 'Planned', 'Cancelled'] as const;
+export const DEPARTMENTS = ['Operations', 'Sales', 'Maintenance', 'Delivery'] as const;

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "expo start",
     "build:web": "expo export --platform web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "setup-demo": "node ../scripts/setupDemoData.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

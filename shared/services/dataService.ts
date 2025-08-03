@@ -15,133 +15,17 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { COLLECTIONS, UserType, USER_TYPES } from '../config/firebase';
-
-export interface Vehicle {
-  id: string;
-  userId: string;
-  make: string;
-  model: string;
-  year: number;
-  fuelType: 'gasoline' | 'diesel' | 'hybrid' | 'electric';
-  licensePlate: string;
-  isActive: boolean;
-  businessId?: string;
-  assignedDriverId?: string;
-  name?: string;
-  plateNumber?: string;
-  tankCapacity?: number;
-  averageConsumption?: number;
-  department?: string;
-  status?: 'active' | 'maintenance' | 'inactive';
-  efficiencyScore?: number;
-  monthlyBudget?: number;
-  currentSpend?: number;
-  obdDeviceId?: string;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
-export interface Trip {
-  id: string;
-  userId: string;
-  vehicleId: string;
-  startTime: Date;
-  endTime?: Date;
-  startLocation: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  endLocation?: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  distance: number;
-  fuelUsed: number;
-  avgSpeed: number;
-  maxSpeed: number;
-  idleTime: number;
-  cost: number;
-  efficiency: number;
-  isManual: boolean;
-  businessId?: string;
-  driverId?: string;
-  status?: string;
-  tag?: string;
-  createdAt?: Date;
-}
-
-export interface FuelLog {
-  id: string;
-  userId: string;
-  vehicleId: string;
-  date: Date;
-  station: string;
-  liters: number;
-  pricePerLiter: number;
-  totalCost: number;
-  odometer: number;
-  receiptImage?: string;
-  location: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  requiresApproval?: boolean;
-  approvalStatus?: 'pending' | 'approved' | 'rejected';
-  approvedBy?: string;
-  approvedAt?: Date;
-  businessId?: string;
-  driverId?: string;
-  tripDistance?: number;
-  efficiency?: number;
-  route?: string;
-  isAnomalous?: boolean;
-  tag?: string;
-  createdAt?: Date;
-}
-
-export interface DrivingBehavior {
-  userId: string;
-  date: Date;
-  aggressiveAcceleration: number;
-  hardBraking: number;
-  excessiveIdling: number;
-  speedingEvents: number;
-  fuelEfficiencyScore: number;
-  overallScore: number;
-  totalDistance?: number;
-  totalDrivingTime?: number;
-  avgSpeed?: number;
-  maxSpeed?: number;
-  ecoScore?: number;
-  safetyScore?: number;
-}
-
-export interface Budget {
-  id: string;
-  name: string;
-  department: string;
-  period: 'monthly' | 'weekly';
-  monthlyLimit: number;
-  weeklyLimit?: number;
-  currentSpend: number;
-  vehicleIds: string[];
-  driverIds?: string[];
-  alertThreshold: number;
-  businessId?: string;
-}
+import { User, Vehicle, Trip, FuelLog, Budget, DrivingBehavior } from '../types';
 
 export class SharedDataService {
-  private db: any;
+  protected db: any;
 
   constructor(db: any) {
     this.db = db;
   }
 
   // --- User Management ---
-  async getUserProfile(userId: string): Promise<any> {
+  async getUserProfile(userId: string): Promise<User | null> {
     try {
       // First check if user is a business user (driver)
       const businessUserRef = doc(this.db, COLLECTIONS.BUSINESS_USERS, userId);
@@ -168,8 +52,15 @@ export class SharedDataService {
           companyId: businessData.businessId,
           companyName: businessName,
           monthlyFuelLimit: businessData.monthlyFuelLimit || 0,
+          businessId: businessData.businessId,
+          permissions: businessData.permissions || [],
+          role: businessData.role || 'driver',
+          isActive: businessData.isActive !== false,
           createdAt: businessData.createdAt?.toDate() || new Date(),
-        };
+          licenseNumber: '',
+          department: '',
+          assignedVehicles: [],
+        } as User;
       }
       
       // Check drivers collection for temporal password users
@@ -199,8 +90,14 @@ export class SharedDataService {
           companyName: businessName,
           monthlyFuelLimit: driverData.monthlyFuelLimit || 0,
           businessId: driverData.businessId,
+          licenseNumber: driverData.licenseNumber || '',
+          department: driverData.department || '',
+          assignedVehicles: driverData.assignedVehicles || [],
+          permissions: [],
+          role: 'driver',
+          isActive: true,
           createdAt: driverData.createdAt?.toDate() || new Date(),
-        };
+        } as User;
       }
       
       // Check regular users collection
@@ -216,8 +113,13 @@ export class SharedDataService {
           email: userData.email || '',
           type: userData.type || USER_TYPES.CITIZEN,
           personalBudget: userData.personalBudget || 0,
+          preferences: userData.preferences || {
+            currency: 'E',
+            notifications: true,
+            theme: 'light'
+          },
           createdAt: userData.createdAt?.toDate() || new Date(),
-        };
+        } as User;
       }
       
       return null;
@@ -241,7 +143,7 @@ export class SharedDataService {
       if (userType === USER_TYPES.DRIVER) {
         // For drivers, get vehicles assigned to them or their business
         const userProfile = await this.getUserProfile(userId);
-        if (userProfile?.businessId) {
+        if (userProfile && 'businessId' in userProfile && userProfile.businessId) {
           q = query(vehiclesRef, where('businessId', '==', userProfile.businessId));
         } else {
           q = query(vehiclesRef, where('assignedDriverId', '==', userId));
@@ -258,6 +160,8 @@ export class SharedDataService {
         return {
           ...data,
           id: doc.id,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
         } as Vehicle;
       });
     } catch (error) {
@@ -342,10 +246,11 @@ export class SharedDataService {
       if (userType === USER_TYPES.DRIVER) {
         // For drivers, get trips assigned to them or their business
         const userProfile = await this.getUserProfile(userId);
-        if (userProfile?.businessId) {
+        if (userProfile && 'businessId' in userProfile && userProfile.businessId) {
           q = query(
             tripsRef, 
             where('businessId', '==', userProfile.businessId),
+            where('driverId', '==', userId),
             orderBy('startTime', 'desc'),
             limit(50)
           );
@@ -376,6 +281,7 @@ export class SharedDataService {
           id: doc.id,
           startTime: data.startTime?.toDate() || new Date(data.startTime),
           endTime: data.endTime?.toDate() || (data.endTime ? new Date(data.endTime) : undefined),
+          createdAt: data.createdAt?.toDate() || new Date(),
         } as Trip;
       });
     } catch (error) {
@@ -416,7 +322,7 @@ export class SharedDataService {
       if (userType === USER_TYPES.DRIVER) {
         // For drivers, get fuel logs for their business or assigned to them
         const userProfile = await this.getUserProfile(userId);
-        if (userProfile?.businessId) {
+        if (userProfile && 'businessId' in userProfile && userProfile.businessId) {
           q = query(
             logsRef, 
             where('businessId', '==', userProfile.businessId),
@@ -449,6 +355,7 @@ export class SharedDataService {
           ...data,
           id: doc.id,
           date: data.date?.toDate() || new Date(data.date),
+          createdAt: data.createdAt?.toDate() || new Date(),
         } as FuelLog;
       });
     } catch (error) {
@@ -488,7 +395,7 @@ export class SharedDataService {
       if (userType === USER_TYPES.DRIVER) {
         // For drivers, get budgets for their business
         const userProfile = await this.getUserProfile(userId);
-        if (userProfile?.businessId) {
+        if (userProfile && 'businessId' in userProfile && userProfile.businessId) {
           q = query(budgetsRef, where('businessId', '==', userProfile.businessId));
         } else {
           return [];
@@ -502,7 +409,8 @@ export class SharedDataService {
       
       return snapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
       })) as Budget[];
     } catch (error) {
       console.error('Error loading budgets:', error);
@@ -532,7 +440,7 @@ export class SharedDataService {
       
       if (userType === USER_TYPES.DRIVER) {
         const userProfile = await this.getUserProfile(userId);
-        if (userProfile?.businessId) {
+        if (userProfile && 'businessId' in userProfile && userProfile.businessId) {
           q = query(
             tripsRef,
             where('businessId', '==', userProfile.businessId),
@@ -589,7 +497,7 @@ export class SharedDataService {
       const vehiclesRef = collection(this.db, COLLECTIONS.VEHICLES);
       let vehicleQuery;
       
-      if (userProfile.businessId) {
+      if ('businessId' in userProfile && userProfile.businessId) {
         vehicleQuery = query(vehiclesRef, where('businessId', '==', userProfile.businessId));
       } else {
         vehicleQuery = query(vehiclesRef, where('assignedDriverId', '==', userId));
@@ -598,7 +506,8 @@ export class SharedDataService {
       const vehicleSnapshot = await getDocs(vehicleQuery);
       const vehicles = vehicleSnapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
       })) as Vehicle[];
 
       // Get budgets
@@ -607,7 +516,7 @@ export class SharedDataService {
       return {
         vehicles,
         budgets,
-        monthlyLimit: userProfile.monthlyFuelLimit || 0
+        monthlyLimit: 'monthlyFuelLimit' in userProfile ? userProfile.monthlyFuelLimit || 0 : 0
       };
     } catch (error) {
       console.error('Error getting driver assigned data:', error);
@@ -694,8 +603,8 @@ export class SharedDataService {
       }
 
       const isBusinessUser = userProfile.type === USER_TYPES.DRIVER;
-      const monthlyLimit = userProfile.monthlyFuelLimit || 0;
-      const personalBudget = userProfile.personalBudget || 0;
+      const monthlyLimit = 'monthlyFuelLimit' in userProfile ? userProfile.monthlyFuelLimit || 0 : 0;
+      const personalBudget = 'personalBudget' in userProfile ? userProfile.personalBudget || 0 : 0;
       
       // Calculate current month's usage
       const monthlyUsage = await this.calculateMonthlyUsage(userId, userType);

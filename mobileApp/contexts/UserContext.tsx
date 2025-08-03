@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { User, Vehicle } from '@/types';
+import { User, Vehicle } from '../shared/types';
 import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth } from '@/services/firebase';
 import { obdService } from '@/services/obdService';
 import { dataService } from '@/services/dataService';
-import { USER_TYPES } from '../../shared/config/firebase';
+import { USER_TYPES } from '../shared/config/firebase';
 
 /**
  * UserContext provides authentication and user state management
@@ -63,8 +63,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [assignedBudgets, setAssignedBudgets] = useState<any[]>([]);
 
   const isBusinessUser = user?.type === USER_TYPES.DRIVER;
-  const monthlyLimit = user?.monthlyFuelLimit || 0;
-  const personalBudget = user?.personalBudget || 0;
+  const monthlyLimit = user && 'monthlyFuelLimit' in user ? user.monthlyFuelLimit || 0 : 0;
+  const personalBudget = user && 'personalBudget' in user ? user.personalBudget || 0 : 0;
 
   // Load driver-specific data
   const loadDriverData = useCallback(async () => {
@@ -150,7 +150,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     
     try {
       await dataService.updateUserBudget(user.id, budget);
-      setUser(prev => prev ? { ...prev, personalBudget: budget } : null);
+      setUser(prev => prev && 'personalBudget' in prev ? { ...prev, personalBudget: budget } : prev);
     } catch (error) {
       console.error('Error updating personal budget:', error);
       throw error;
@@ -162,7 +162,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     
     try {
       await dataService.updateUserMonthlyLimit(user.id, limit);
-      setUser(prev => prev ? { ...prev, monthlyFuelLimit: limit } : null);
+      setUser(prev => prev && 'monthlyFuelLimit' in prev ? { ...prev, monthlyFuelLimit: limit } : prev);
     } catch (error) {
       console.error('Error updating monthly limit:', error);
       throw error;
@@ -203,6 +203,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         ...vehicle,
         userId: user.id,
         isActive: vehicles.length === 0, // First vehicle becomes active
+        createdAt: new Date(),
       });
       
       setVehicles(prev => [...prev, newVehicle]);

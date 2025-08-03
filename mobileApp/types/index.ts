@@ -1,229 +1,43 @@
-import { UserType } from '../../shared/config/firebase';
+// Re-export shared types
+export * from '../shared/types';
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  type: UserType;
-  companyId?: string;
-  companyName?: string;
-  monthlyFuelLimit?: number;
-  personalBudget?: number;
-  createdAt: Date;
-  // Additional fields for business users
-  businessId?: string;
-  permissions?: string[];
-  role?: string;
-  isActive?: boolean;
+// Mobile-specific types
+export interface MobileUser extends User {
+  // Mobile-specific user properties
+  deviceId?: string;
+  pushToken?: string;
+  lastLoginDevice?: string;
+  appVersion?: string;
 }
 
-export interface Vehicle {
-  id: string;
-  userId: string;
-  make: string;
-  model: string;
-  year: number;
-  fuelType: 'gasoline' | 'diesel' | 'hybrid' | 'electric';
-  licensePlate: string;
-  isActive: boolean;
-  // Additional fields for business vehicles
-  businessId?: string;
-  assignedDriverId?: string;
-  createdAt?: Date;
-  updatedAt?: Date;
+export interface MobileVehicle extends Vehicle {
+  // Mobile-specific vehicle properties
+  lastSyncTime?: Date;
+  offlineData?: any;
 }
 
-export interface Trip {
-  id: string;
-  userId: string;
-  vehicleId: string;
-  startTime: Date;
-  endTime?: Date;
-  startLocation: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  endLocation?: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  distance: number; // in km
-  fuelUsed: number; // in liters
-  avgSpeed: number;
-  maxSpeed: number;
-  idleTime: number; // in minutes
-  cost: number;
-  efficiency: number; // km/l
-  isManual: boolean;
-  obdData?: OBDData[];
-  // Additional fields for business trips
-  businessId?: string;
-  purpose?: string;
-  approvalStatus?: 'pending' | 'approved' | 'rejected';
-  approvedBy?: string;
-  approvedAt?: Date;
-  createdAt?: Date;
+export interface MobileTrip extends Trip {
+  // Mobile-specific trip properties
+  syncStatus?: 'synced' | 'pending' | 'failed';
+  offlineMode?: boolean;
 }
 
-export interface OBDData {
-  timestamp: Date;
-  rpm: number;
-  speed: number;
-  fuelConsumption: number;
-  engineLoad: number;
-  coolantTemp: number;
-  // Additional OBD parameters
-  throttlePosition?: number;
-  airIntakeTemp?: number;
-  fuelPressure?: number;
-  engineRunTime?: number;
-}
-
-export interface FuelLog {
-  id: string;
-  userId: string;
-  vehicleId: string;
-  date: Date;
-  station: string;
-  liters: number;
-  pricePerLiter: number;
-  totalCost: number;
-  odometer: number;
-  receiptImage?: string;
-  location: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  requiresApproval?: boolean;
-  approvalStatus?: 'pending' | 'approved' | 'rejected';
-  approvedBy?: string;
-  approvedAt?: Date;
-  // Additional fields for business fuel logs
-  businessId?: string;
-  purpose?: string;
-  createdAt?: Date;
-}
-
-export interface FuelStation {
-  id: string;
-  name: string;
-  brand: string;
-  address: string;
-  location: {
-    latitude: number;
-    longitude: number;
-  };
-  distance: number;
-  prices: {
-    gasoline: number;
-    diesel: number;
-    premium: number;
-  };
-  lastUpdated: Date;
-  // Additional station info
-  amenities?: string[];
-  operatingHours?: {
-    open: string;
-    close: string;
-  };
-  contactInfo?: {
-    phone?: string;
-    website?: string;
-  };
-}
-
-export interface DrivingBehavior {
-  userId: string;
-  date: Date;
-  aggressiveAcceleration: number;
-  hardBraking: number;
-  excessiveIdling: number;
-  speedingEvents: number;
-  fuelEfficiencyScore: number;
-  overallScore: number;
-  // Additional behavior metrics
-  totalDistance?: number;
-  totalDrivingTime?: number;
-  avgSpeed?: number;
-  maxSpeed?: number;
-  ecoScore?: number;
-  safetyScore?: number;
-}
-
-// Business-specific types
-export interface Business {
-  id: string;
-  name: string;
-  address: string;
-  contactInfo: {
-    email: string;
-    phone: string;
-  };
-  settings: {
-    fuelBudgetPerDriver: number;
-    requireApproval: boolean;
-    allowedFuelTypes: string[];
-  };
-  createdAt: Date;
-  isActive: boolean;
-}
-
-export interface BusinessUser {
-  id: string;
-  businessId: string;
-  email: string;
-  role: 'owner' | 'admin' | 'driver';
-  permissions: string[];
-  monthlyFuelLimit?: number;
-  isActive: boolean;
-  createdAt: Date;
-}
-
-export interface Driver {
-  id: string;
-  businessId: string;
-  userId: string;
-  licenseNumber: string;
-  licenseExpiry: Date;
-  assignedVehicles: string[];
-  monthlyFuelLimit: number;
-  isActive: boolean;
-  createdAt: Date;
-}
-
-// API Response types
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
-}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  hasMore: boolean;
-}
-
-// Form types
-export interface LoginForm {
+// Form types for mobile
+export interface MobileLoginForm {
   email: string;
   password: string;
+  rememberMe?: boolean;
 }
 
-export interface SignUpForm {
+export interface MobileSignUpForm {
   name: string;
   email: string;
   password: string;
   confirmPassword: string;
+  acceptTerms: boolean;
 }
 
-export interface VehicleForm {
+export interface MobileVehicleForm {
   make: string;
   model: string;
   year: number;
@@ -231,7 +45,7 @@ export interface VehicleForm {
   fuelType: Vehicle['fuelType'];
 }
 
-export interface TripForm {
+export interface MobileTripForm {
   startLocation: string;
   endLocation: string;
   distance: number;
@@ -240,11 +54,22 @@ export interface TripForm {
   purpose?: string;
 }
 
-export interface FuelLogForm {
+export interface MobileFuelLogForm {
   station: string;
   liters: number;
   pricePerLiter: number;
   odometer: number;
   receiptImage?: string;
   location: string;
+}
+
+// Navigation types
+export interface NavigationParams {
+  [key: string]: any;
+}
+
+// Component props types
+export interface ScreenProps {
+  navigation?: any;
+  route?: any;
 }

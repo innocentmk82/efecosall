@@ -16,8 +16,14 @@ import {
 import { db } from '../config/firebase';
 import { Vehicle, Driver, FuelLog, Budget, Trip, DashboardKPIs, OBDData, OBDAlert, OBDDevice } from '../types';
 import { withErrorHandling } from '../utils/errorHandling';
+import { SharedDataService } from '../shared/services/dataService';
+import { USER_TYPES } from '../shared/config/firebase';
 
-export class FirebaseService {
+export class FirebaseService extends SharedDataService {
+  constructor() {
+    super(db);
+  }
+
   // Vehicle operations
   getVehicles = withErrorHandling(async (): Promise<Vehicle[]> => {
     try {
